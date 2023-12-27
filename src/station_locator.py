@@ -228,7 +228,7 @@ def image_subscriber():
     #rospy.Subscriber('/camera/rgb/image_raw', Image, image_callback)
     c_info = rospy.Subscriber('/camera/color/camera_info', CameraInfo, camera_info_callback)
     #c_info = rospy.Subscriber('/camera/depth/camera_info', CameraInfo, camera_info_callback)
-    rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
+    rospy.Subscriber('/camera/depth/image_rect_raw', Image, depth_callback)
     #rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     tf_pub = tf.TransformBroadcaster()
 
