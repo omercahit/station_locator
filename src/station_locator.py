@@ -46,7 +46,7 @@ c_info = ""
 camera_matrix = []
 dist_coeffs = np.zeros((4, 1), dtype=np.float32)
 sift = cv2.SIFT_create()
-calibration = cv2.imread('../resources/qr_with_borders2.png')
+calibration = cv2.imread('../resources/qr_code_big.png')
 calibGray = cv2.cvtColor(calibration, cv2.COLOR_BGR2GRAY)
 h, w = calibGray.shape
 kp1, des1 = sift.detectAndCompute(calibGray, None)
@@ -63,11 +63,13 @@ depth_msg = 0
 intrinsics = []
 tf_pub = None
 
+yaw_increase = np.radians(180)
+quaternion_rotated = transformations.quaternion_from_euler(0, 0, yaw_increase)
+
 def image_callback(msg):
     global camera_matrix, dist_coeffs, sift, calibration, calibGray, h, w, tf_pub
     global kp1, des1, colors, object_points, center, depth_msg, intrinsics
     try:
-        # Görüntü mesajını OpenCV formatına dönüştür
         cv_image = CvBridge().imgmsg_to_cv2(msg, "bgr8")
 
         calibrated = True
@@ -123,7 +125,13 @@ def image_callback(msg):
                         points, jacobian = cv2.projectPoints(unitv_points, rotation_vector, translation_vector,
                                                              camera_matrix, dist_coeffs)
 
-                        quat = rotationMatrixToQuaternion1(rotation_matrix)
+                        #quat = rotationMatrixToQuaternion1(rotation_matrix)
+                        #print(euler_angles_deg)
+                        quat = transformations.quaternion_from_euler(0,0,np.radians(euler_angles_rad[0]))
+                        #quat = transformations.quaternion_inverse(quat_temp)
+                        #quat = transformations.quaternion_from_matrix(rotation_matrix)
+
+                        quat = transformations.quaternion_multiply(quaternion_rotated, quat)
 
                         if len(points) > 0:
                             points = points.reshape((4, 2))
@@ -138,9 +146,10 @@ def image_callback(msg):
                             # print(image.shape)
                             if image.shape[1] >= origin[0] >= 0 and image.shape[0] >= origin[1] >= 0:
                                 depth_distance = depth_msg/1000
+                                print(depth_distance)
                                 dx, dy, dz = rs.rs2_deproject_pixel_to_point(intrinsics, [origin[0], origin[1]],
                                                                              depth_distance)
-                                dy = dy * (-1)
+                                dx = dx * (-1)
                             else:
                                 dx, dy, dz = 0, 0, 0
 
@@ -160,9 +169,9 @@ def image_callback(msg):
                             tf_msg.header.stamp = rospy.Time.now()
                             tf_msg.header.frame_id = "camera_link"
                             tf_msg.child_frame_id = "qr_frame"
-                            tf_msg.transform.translation.x = dx
-                            tf_msg.transform.translation.y = dy
-                            tf_msg.transform.translation.z = dz
+                            tf_msg.transform.translation.x = dz
+                            tf_msg.transform.translation.y = dx
+                            tf_msg.transform.translation.z = 0
                             tf_msg.transform.rotation.x = quat[0]
                             tf_msg.transform.rotation.y = quat[1]
                             tf_msg.transform.rotation.z = quat[2]
@@ -200,7 +209,8 @@ def camera_info_callback(msg):
         intrinsics.model = rs.distortion.brown_conrady
     elif msg.distortion_model == 'equidistant':
         intrinsics.model = rs.distortion.kannala_brandt4
-    intrinsics.coeffs = [i for i in msg.D]
+    #intrinsics.coeffs = [i for i in msg.D]
+    intrinsics.coeffs = [0,0,0,0,0]
 
     c_info.unregister()
 
@@ -218,7 +228,7 @@ def image_subscriber():
     #rospy.Subscriber('/camera/rgb/image_raw', Image, image_callback)
     c_info = rospy.Subscriber('/camera/color/camera_info', CameraInfo, camera_info_callback)
     #c_info = rospy.Subscriber('/camera/depth/camera_info', CameraInfo, camera_info_callback)
-    rospy.Subscriber('/camera/depth/image_rect_raw', Image, depth_callback)
+    rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     #rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     tf_pub = tf.TransformBroadcaster()
 
