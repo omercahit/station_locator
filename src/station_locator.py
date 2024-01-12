@@ -9,6 +9,8 @@ import tf.transformations as transformations
 import tf
 import pyrealsense2 as rs
 from geometry_msgs.msg import TransformStamped
+import time
+import tf2_ros
 
 def rotationMatrixToQuaternion1(rot_matrix):
     trace = np.trace(rot_matrix)
@@ -62,13 +64,20 @@ center = (0,0)
 depth_msg = 0
 intrinsics = []
 tf_pub = None
+counter = 0
+global_pose = None
+global_orientation = None
 
 yaw_increase = np.radians(180)
 quaternion_rotated = transformations.quaternion_from_euler(0, 0, yaw_increase)
 
 def image_callback(msg):
-    global camera_matrix, dist_coeffs, sift, calibration, calibGray, h, w, tf_pub
-    global kp1, des1, colors, object_points, center, depth_msg, intrinsics
+    global camera_matrix, dist_coeffs, sift, calibration, calibGray, h, w, tf_pub, global_pose, global_orientation
+    global kp1, des1, colors, object_points, center, depth_msg, intrinsics, counter
+
+    tfBuffer = tf2_ros.Buffer()
+    listener = tf2_ros.TransformListener(tfBuffer)
+
     try:
         cv_image = CvBridge().imgmsg_to_cv2(msg, "bgr8")
 
@@ -145,7 +154,7 @@ def image_callback(msg):
 
                             # print(image.shape)
                             if image.shape[1] >= origin[0] >= 0 and image.shape[0] >= origin[1] >= 0:
-                                depth_distance = depth_msg/1000
+                                depth_distance = depth_msg/1000-3.25
                                 print(depth_distance)
                                 dx, dy, dz = rs.rs2_deproject_pixel_to_point(intrinsics, [origin[0], origin[1]],
                                                                              depth_distance)
@@ -154,9 +163,9 @@ def image_callback(msg):
                                 dx, dy, dz = 0, 0, 0
 
                             #print("x:" + str(dx) + " y:" + str(dy) + " z:" + str(dz) + " angles:" + str(quat))
-                            position = {"x": dx,
-                                        "y": dy,
-                                        "z": dz}
+                            position = {"x": dz,
+                                        "y": dx,
+                                        "z": 0}
                             orientation = {"x": quat[0],
                                            "y": quat[1],
                                            "z": quat[2],
@@ -165,31 +174,76 @@ def image_callback(msg):
                                     "orientation": orientation}
                             print(pose)
 
-                            tf_msg = TransformStamped()
-                            tf_msg.header.stamp = rospy.Time.now()
-                            tf_msg.header.frame_id = "camera_link"
-                            tf_msg.child_frame_id = "qr_frame"
-                            tf_msg.transform.translation.x = dz
-                            tf_msg.transform.translation.y = dx
-                            tf_msg.transform.translation.z = 0
-                            tf_msg.transform.rotation.x = quat[0]
-                            tf_msg.transform.rotation.y = quat[1]
-                            tf_msg.transform.rotation.z = quat[2]
-                            tf_msg.transform.rotation.w = quat[3]
+                            counter += 1
 
-                            tf_pub.sendTransformMessage(tf_msg)
+                            if counter <= 30:
+                                tf_msg = TransformStamped()
+                                tf_msg.header.stamp = rospy.Time.now()
+                                tf_msg.header.frame_id = "camera_link"
+                                tf_msg.child_frame_id = "qr_frame"
+                                tf_msg.transform.translation.x = dz
+                                tf_msg.transform.translation.y = dx
+                                tf_msg.transform.translation.z = 0
+                                tf_msg.transform.rotation.x = quat[0]
+                                tf_msg.transform.rotation.y = quat[1]
+                                tf_msg.transform.rotation.z = quat[2]
+                                tf_msg.transform.rotation.w = quat[3]
+
+                                tf_pub.sendTransformMessage(tf_msg)
+                                print(counter)
+
+                                if counter == 30:
+                                    # Dönüşümü al (source_frame --> target_frame)
+                                    trans = tfBuffer.lookup_transform('camera_link', 'qr_frame', rospy.Time())
+                                    trans2 = tfBuffer.lookup_transform('odom_combined', 'camera_link', rospy.Time())
+                                    trans3 = tfBuffer.lookup_transform('map', 'odom_combined', rospy.Time())
+                                    print(trans2.transform.translation.x)
+
+                                    # Global pose bilgisi
+                                    global_pose = trans.transform.translation
+                                    global_pose.x = trans2.transform.translation.x + trans3.transform.translation.x + trans.transform.translation.x
+                                    global_pose.y = trans2.transform.translation.y + trans3.transform.translation.y + trans.transform.translation.y
+                                    global_orientation = trans.transform.rotation
+
+                                    
+                                    listener.unregister()
+                                    rospy.loginfo("Bağlantı kesildi.")
 
                             for p, c in zip(points[1:], colors[:3]):
                                 p = (int(p[0]), int(p[1]))
 
                                 cv2.line(image, origin, p, c, 5)
 
-                        cv2.imshow("Image Window", image)
-                        cv2.waitKey(1)
+                        #cv2.imshow("Image Window", image)
+                        #cv2.waitKey(1)
             else:
                 print("these values are useless")
         else:
             print("Not enough matches are found - {}/{}".format(len(good), 10))
+
+        if counter > 45:
+            #trans2 = tfBuffer.lookup_transform('map', 'camera_link', rospy.Time.now())
+            #odom_to_cam_pose = trans2.transform.translation
+            #odom_to_cam_orientation = trans2.transform.rotation
+            tf_msg = TransformStamped()
+            tf_msg.header.stamp = rospy.Time.now()
+            tf_msg.header.frame_id = "map"
+            tf_msg.child_frame_id = "qr_frame"
+            tf_msg.transform.translation.x = global_pose.x 
+            tf_msg.transform.translation.y = global_pose.y
+            #tf_msg.transform.translation.x = global_pose.x + odom_to_cam_pose.x
+            #tf_msg.transform.translation.y = global_pose.y + odom_to_cam_pose.y
+            tf_msg.transform.translation.z = 0
+            tf_msg.transform.rotation.x = global_orientation.x
+            tf_msg.transform.rotation.y = global_orientation.y
+            tf_msg.transform.rotation.z = global_orientation.z
+            tf_msg.transform.rotation.w = global_orientation.w
+
+            tf_pub.sendTransformMessage(tf_msg)
+
+            #if counter == 299:
+            #    counter = 0
+
     except Exception as e:
         print(e)
 
@@ -228,7 +282,7 @@ def image_subscriber():
     #rospy.Subscriber('/camera/rgb/image_raw', Image, image_callback)
     c_info = rospy.Subscriber('/camera/color/camera_info', CameraInfo, camera_info_callback)
     #c_info = rospy.Subscriber('/camera/depth/camera_info', CameraInfo, camera_info_callback)
-    rospy.Subscriber('/camera/depth/image_rect_raw', Image, depth_callback)
+    rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     #rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     tf_pub = tf.TransformBroadcaster()
 
