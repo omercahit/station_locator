@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 from sensor_msgs.msg import Image, CameraInfo
@@ -11,6 +11,7 @@ import pyrealsense2 as rs
 from geometry_msgs.msg import TransformStamped
 import time
 import tf2_ros
+import math
 
 def rotationMatrixToQuaternion1(rot_matrix):
     trace = np.trace(rot_matrix)
@@ -43,6 +44,49 @@ def rotationMatrixToQuaternion1(rot_matrix):
 
     quaternion = np.array([x, y, z, w])
     return quaternion
+
+def multiply_transforms(transform1, transform2):
+    # İki dönüşümü çarp
+    quaternion1 = [transform1.transform.rotation.x,
+                   transform1.transform.rotation.y,
+                   transform1.transform.rotation.z,
+                   transform1.transform.rotation.w]
+    
+    translation1 = [transform1.transform.translation.x,
+                    transform1.transform.translation.y,
+                    transform1.transform.translation.z]
+
+    matrix1 = tf.transformations.quaternion_matrix(quaternion1)
+    matrix1[0:3, 3] = translation1
+
+    quaternion2 = [transform2.transform.rotation.x,
+                   transform2.transform.rotation.y,
+                   transform2.transform.rotation.z,
+                   transform2.transform.rotation.w]
+    
+    translation2 = [transform2.transform.translation.x,
+                    transform2.transform.translation.y,
+                    transform2.transform.translation.z]
+
+    matrix2 = tf.transformations.quaternion_matrix(quaternion2)
+    matrix2[0:3, 3] = translation2
+
+    result_matrix = matrix1.dot(matrix2)
+
+    # Yeni dönüşümü oluştur
+    quaternion_result = tf.transformations.quaternion_from_matrix(result_matrix)
+    translation_result = result_matrix[0:3, 3]
+
+    result_transform = TransformStamped()
+    result_transform.transform.translation.x = translation_result[0]
+    result_transform.transform.translation.y = translation_result[1]
+    result_transform.transform.translation.z = translation_result[2]
+    result_transform.transform.rotation.x = quaternion_result[0]
+    result_transform.transform.rotation.y = quaternion_result[1]
+    result_transform.transform.rotation.z = quaternion_result[2]
+    result_transform.transform.rotation.w = quaternion_result[3]
+
+    return result_transform
 
 c_info = ""
 camera_matrix = []
@@ -154,7 +198,7 @@ def image_callback(msg):
 
                             # print(image.shape)
                             if image.shape[1] >= origin[0] >= 0 and image.shape[0] >= origin[1] >= 0:
-                                depth_distance = depth_msg/1000-3.25
+                                depth_distance = depth_msg/1000
                                 print(depth_distance)
                                 dx, dy, dz = rs.rs2_deproject_pixel_to_point(intrinsics, [origin[0], origin[1]],
                                                                              depth_distance)
@@ -172,7 +216,7 @@ def image_callback(msg):
                                            "w": quat[3]}
                             pose = {"position": position,
                                     "orientation": orientation}
-                            print(pose)
+                            #print(pose)
 
                             counter += 1
 
@@ -191,19 +235,49 @@ def image_callback(msg):
 
                                 tf_pub.sendTransformMessage(tf_msg)
                                 print(counter)
+                                print(tf_msg)
 
                                 if counter == 30:
                                     # Dönüşümü al (source_frame --> target_frame)
                                     trans = tfBuffer.lookup_transform('camera_link', 'qr_frame', rospy.Time())
-                                    trans2 = tfBuffer.lookup_transform('odom_combined', 'camera_link', rospy.Time())
-                                    trans3 = tfBuffer.lookup_transform('map', 'odom_combined', rospy.Time())
+                                    trans3 = tfBuffer.lookup_transform('odom', 'base_link', rospy.Time())
+                                    trans4 = tfBuffer.lookup_transform('map', 'odom', rospy.Time())
+                                    trans2 = tfBuffer.lookup_transform('base_link', 'camera_link', rospy.Time())
                                     print(trans2.transform.translation.x)
 
+                                    #yaw1 = tf.transformations.euler_from_quaternion([trans.transform.rotation.x, trans.transform.rotation.y, trans.transform.rotation.z, trans.transform.rotation.w,])[2]
+                                    #trans.transform.translation.x = math.sin(yaw1)*trans.transform.rotation.x
+                                    #trans.transform.translation.y = math.cos(yaw1)*trans.transform.rotation.y
+                                    """
+                                    yaw1 = (tf.transformations.euler_from_quaternion([trans.transform.rotation.x, trans.transform.rotation.y, trans.transform.rotation.z, trans.transform.rotation.w,]))[2]
+                                    trans.transform.translation.x, trans.transform.translation.y = math.sin(yaw1)*math.sqrt(trans.transform.translation.x**2 + trans.transform.translation.y**2) , math.cos(yaw1)*math.sqrt(trans.transform.translation.x**2 + trans.transform.translation.y**2)
+                                    yaw2 = (tf.transformations.euler_from_quaternion([trans2.transform.rotation.x, trans2.transform.rotation.y, trans2.transform.rotation.z, trans2.transform.rotation.w,]))[2]
+                                    trans2.transform.translation.x, trans2.transform.translation.y = math.sin(yaw2)*math.sqrt(trans2.transform.translation.x**2 + trans2.transform.translation.y**2) , math.cos(yaw2)*math.sqrt(trans2.transform.translation.x**2 + trans2.transform.translation.y**2)
+                                    yaw3 = tf.transformations.euler_from_quaternion([trans3.transform.rotation.x, trans3.transform.rotation.y, trans3.transform.rotation.z, trans3.transform.rotation.w,])[2]
+                                    trans3.transform.translation.x, trans3.transform.translation.y = math.sin(yaw3)*math.sqrt(trans3.transform.translation.x**2 + trans3.transform.translation.y**2) , math.cos(yaw3)*math.sqrt(trans3.transform.translation.x**2 + trans3.transform.translation.y**2)
+                                    yaw4 = tf.transformations.euler_from_quaternion([trans4.transform.rotation.x, trans4.transform.rotation.y, trans4.transform.rotation.z, trans4.transform.rotation.w,])[2]
+                                    trans4.transform.translation.x, trans4.transform.translation.y = math.sin(yaw4)*math.sqrt(trans4.transform.translation.x**2 + trans4.transform.translation.y**2) , math.cos(yaw4)*math.sqrt(trans4.transform.translation.x**2 + trans4.transform.translation.y**2)
+                                    """
+
+                                    #result_transform = trans3[0]
+                                    
+                                    result_transform = multiply_transforms(trans4, trans3)
+                                    result_transform = multiply_transforms(result_transform, trans2)
+                                    result_transform = multiply_transforms(result_transform, trans)
+
+                                    #result_transform = listener.transformPose('camera_link', trans)
+
+                                    #print("odomtobase",math.degrees(yaw2),"maptoodom",math.degrees(yaw3),"basetocamera",math.degrees(yaw4))
                                     # Global pose bilgisi
-                                    global_pose = trans.transform.translation
-                                    global_pose.x = trans2.transform.translation.x + trans3.transform.translation.x + trans.transform.translation.x
-                                    global_pose.y = trans2.transform.translation.y + trans3.transform.translation.y + trans.transform.translation.y
-                                    global_orientation = trans.transform.rotation
+                                    #global_pose = trans.transform.translation
+                                    #global_pose.x = trans2.transform.translation.x + trans3.transform.translation.x + trans.transform.translation.x + trans4.transform.translation.x
+                                    #global_pose.y = trans2.transform.translation.y + trans3.transform.translation.y + trans.transform.translation.y + trans4.transform.translation.y
+                                    #global_orientation = trans.transform.rotation
+
+                                    global_pose = result_transform.transform.translation
+                                    global_pose.x = result_transform.transform.translation.x
+                                    global_pose.y = result_transform.transform.translation.y
+                                    global_orientation = result_transform.transform.rotation
 
                                     
                                     listener.unregister()
@@ -221,7 +295,7 @@ def image_callback(msg):
         else:
             print("Not enough matches are found - {}/{}".format(len(good), 10))
 
-        if counter > 45:
+        if counter > 35:
             #trans2 = tfBuffer.lookup_transform('map', 'camera_link', rospy.Time.now())
             #odom_to_cam_pose = trans2.transform.translation
             #odom_to_cam_orientation = trans2.transform.rotation
@@ -240,6 +314,7 @@ def image_callback(msg):
             tf_msg.transform.rotation.w = global_orientation.w
 
             tf_pub.sendTransformMessage(tf_msg)
+            print(tf_msg)
 
             #if counter == 299:
             #    counter = 0
@@ -282,7 +357,7 @@ def image_subscriber():
     #rospy.Subscriber('/camera/rgb/image_raw', Image, image_callback)
     c_info = rospy.Subscriber('/camera/color/camera_info', CameraInfo, camera_info_callback)
     #c_info = rospy.Subscriber('/camera/depth/camera_info', CameraInfo, camera_info_callback)
-    rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
+    rospy.Subscriber('/camera/depth/image_rect_raw', Image, depth_callback)
     #rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback)
     tf_pub = tf.TransformBroadcaster()
 
