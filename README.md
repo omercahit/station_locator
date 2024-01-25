@@ -27,3 +27,11 @@ rosrun station_locator station_locator.py
 ```
 
 After running the station_locator node, qr_frame will be published as a tf.
+
+## Go to the frame
+If you want to send move_base command to your robot to go to the located frame, you can use this command:
+
+```bash
+rosrun station_locator move_base_to_qr_frame.py
+```
+This will send your robot to a position which will be 1.2m between the base_link of the robot and the qr_frame.
