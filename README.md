@@ -28,6 +28,14 @@ rosrun station_locator station_locator.py
 
 After running the station_locator node, qr_frame will be published as a tf.
 
+## Gazebo Simulation Scene:
+
+![Screenshot from 2024-01-29 09-56-39](https://github.com/omercahit/station_locator/assets/35147835/3ac72ed0-4a63-4054-87a9-08b093ff2dab)
+
+## View of qr_frame tf on Rviz:
+
+![Screenshot from 2024-01-29 09-59-59](https://github.com/omercahit/station_locator/assets/35147835/76ccee29-91aa-427f-ab06-ab9e3ca51d65)
+
 ## Send Move Base Goal to The Frame
 If you want to send move_base command to your robot to go to the located frame, you can use this command:
 
